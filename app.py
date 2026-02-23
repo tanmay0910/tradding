@@ -166,16 +166,42 @@ with tab_hub:
         st.rerun()
 
 # ---------------------------------------------------------
-# TABS 2-5: YOUR OTHER TOOLS
+# TAB 2: PMO SNIPER (PRE-MARKET)
 # ---------------------------------------------------------
 with tab_pmo:
-    st.subheader("Early Identification: Pre-Open Leaders")
-    if st.button("▶ Run Pre-Market Scan"):
-        try:
-            pmo_data = nse_preopen("NIFTY")
-            df_p = pd.DataFrame(pmo_data['data'])
-            st.dataframe(df_p[df_p['quantity'] > 5000].sort_values(by='quantity', ascending=False)[['symbol', 'lastPrice', 'pChange', 'quantity']], width='stretch', hide_index=True)
-        except: st.warning("Pre-open unavailable.")
+    st.subheader("🕒 Pre-Market Sniper (9:00 AM - 9:15 AM)")
+    st.markdown("Identifies institutional orders before the 9:15 AM bell.")
+    
+    col_pmo1, col_pmo2 = st.columns(2)
+    
+    with col_pmo1:
+        if st.button("▶ RUN PRE-MARKET SCAN", type="primary"):
+            # Try multiple keys because 'NIFTY' often goes 'unavailable' first
+            for key in ["FO", "NIFTY", "ALL"]:
+                try:
+                    pmo_data = nse_preopen(key)
+                    if pmo_data and 'data' in pmo_data:
+                        df_p = pd.DataFrame(pmo_data['data'])
+                        # Clean and Sort by Quantity (Institutional Footprint)
+                        df_p['quantity'] = pd.to_numeric(df_p['quantity'], errors='coerce')
+                        hits = df_p[df_p['quantity'] > 5000].sort_values(by='quantity', ascending=False)
+                        
+                        st.success(f"✅ Data fetched using '{key}' index.")
+                        st.dataframe(hits[['symbol', 'lastPrice', 'pChange', 'quantity']], width='stretch', hide_index=True)
+                        break # Stop once we find working data
+                except:
+                    continue
+            else:
+                st.error("NSE Pre-open data is currently locked or empty. Try again in 1 minute.")
+
+    with col_pmo2:
+        if st.button("🛠️ RUN PMO X-RAY"):
+            try:
+                # Direct API check
+                raw_pmo = nse_preopen("FO")
+                st.json(raw_pmo)
+            except Exception as e:
+                st.error(f"API Error: {e}")
 
 # ---------------------------------------------------------
 # TAB 3: SMART MONEY ABSORPTION (60% DELIVERY)
@@ -268,3 +294,4 @@ with tab_risk:
     e_p, s_l = st.number_input("Entry Price", value=100.0), st.number_input("Stop Loss", value=98.0)
 
     if e_p > s_l: st.metric("Shares to Buy", int(100 / (e_p - s_l)))
+
