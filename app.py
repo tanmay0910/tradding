@@ -4,9 +4,14 @@ import pandas as pd
 import feedparser
 import urllib.parse
 import time
-import winsound
 from nsepython import nse_eq, nse_events, nse_preopen, nse_eq_symbols, fnolist
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import os
+try:
+    import winsound
+    HAS_WINSOUND = True
+except ImportError:
+    HAS_WINSOUND = False
 
 # --- 1. SETUP & MEMORY ---
 st.set_page_config(page_title="Alpha Feed Terminal", layout="wide")
@@ -148,8 +153,11 @@ with tab_hub:
                             st.session_state.triggered_stocks.insert(0, symbol)
                             # Keep only the newest 5 to prevent browser crashing
                             st.session_state.triggered_stocks = st.session_state.triggered_stocks[:5]
-                            
-                            winsound.Beep(1000, 500)
+                            # REPLACE 'winsound.Beep(1000, 500)' WITH THIS:
+                            if HAS_WINSOUND:
+                                winsound.Beep(1000, 500)
+                            else:
+                                print("Beep: Volume Breakout Detected!")
                             flash_area.markdown('<div class="flash">⚠️ NEW BREAKOUT ADDED TO FEED ⚠️</div>', unsafe_allow_html=True)
                             st.rerun() # Refresh the UI to show the new stock in the right column
             except: pass
@@ -258,4 +266,5 @@ with tab_earn:
 with tab_risk:
     st.subheader("🧮 Fixed ₹100 Risk Calculator")
     e_p, s_l = st.number_input("Entry Price", value=100.0), st.number_input("Stop Loss", value=98.0)
+
     if e_p > s_l: st.metric("Shares to Buy", int(100 / (e_p - s_l)))
