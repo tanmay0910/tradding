@@ -3,78 +3,96 @@ import pandas as pd
 import time
 from nsepython import nse_eq, fnolist
 
-# --- 1. SETTINGS & BYPASS ---
-st.set_page_config(page_title="Alpha Execution", layout="wide")
+# --- 1. DEBUGGING ENGINE ---
+def debug_log(msg, type="info"):
+    """Helper to show what's happening behind the scenes"""
+    if type == "error":
+        st.sidebar.error(f"❌ {msg}")
+    elif type == "success":
+        st.sidebar.success(f"✅ {msg}")
+    else:
+        st.sidebar.write(f"🔍 {msg}")
 
-# This header makes the NSE think you are a real person on Chrome
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9"
-}
+st.set_page_config(page_title="Alpha Debug Mode", layout="wide")
+st.sidebar.title("🛠️ System Logs")
 
-st.title("⚡ Alpha Live Execution (9:45 AM Session)")
-st.info("Direct Data Mode Active. If this shows empty, run the code LOCALLY via VS Code.")
-
-# --- 2. THE TABS ---
-tab_scan, tab_del, tab_risk = st.tabs(["🎯 Live Scanner", "💎 Delivery", "🧮 Risk"])
-
-# ---------------------------------------------------------
-# TAB 1: LIVE SCANNER (NO AUTO-REFRESH TO AVOID BLOCKS)
-# ---------------------------------------------------------
-with tab_scan:
-    col_ctrl, col_feed = st.columns([1, 2])
-    
-    with col_ctrl:
-        st.subheader("Scanner Controls")
-        # Manual scanning is MUCH safer on the cloud than auto-pilot
-        if st.button("▶ SCAN TOP 20 BREAKOUTS", type="primary"):
-            st.session_state.hits = []
-            with st.spinner("Hunting..."):
-                # Scanning small batches prevents the NSE from 'Ghosting' your IP
-                watchlist = fnolist()[10:30] 
-                for symbol in watchlist:
-                    try:
-                        data = nse_eq(symbol)
-                        price = data['priceInfo']['lastPrice']
-                        vol = data['marketDeptOrderBook']['tradeInfo']['totalTradedVolume']
-                        prev_vol = data['priceInfo']['previousCloseVolume']
-                        
-                        # 10% Volume Trigger
-                        if price > 50 and vol > (prev_vol * 0.10):
-                            st.session_state.hits.append(symbol)
-                    except:
-                        continue
-                    time.sleep(0.6) # Wait to look human
-            st.success("Scan Complete")
-
-    with col_feed:
-        if 'hits' in st.session_state and st.session_state.hits:
-            for sym in st.session_state.hits:
-                st.markdown(f"### 🔥 {sym}")
-                # LINK BUTTONS ARE CRASH-PROOF
-                st.link_button(f"📈 View {sym} Chart", f"https://www.tradingview.com/chart/?symbol=NSE:{sym}")
-                st.markdown("---")
-        else:
-            st.write("No breakouts found in this batch. Click Scan to refresh.")
-
-# ---------------------------------------------------------
-# TAB 2: DELIVERY SCANNER
-# ---------------------------------------------------------
-with tab_del:
-    st.subheader("Institutional Hoarding")
-    if st.button("▶ Get High Delivery Stocks"):
-        res = []
-        # Target a specific safe range
-        for sym in fnolist()[30:50]:
-            try:
-                d = nse_eq(sym)
-                t = d.get('marketDeptOrderBook', {}).get('tradeInfo', {})
-                # Try all known NSE delivery keys
-                p = t.get('deliveryPercentage', t.get('deliveryToTradedQuantity', 0))
-                if p and str(p) != '-' and float(str(p).replace('%','')) > 60:
-                    res.append({"Symbol": sym, "Delivery": f"{p}%", "LTP": d['priceInfo']['lastPrice']})
-            except: pass
-            time.sleep(0.5)
+# --- 2. STABILIZED FETCH WITH LOGS ---
+def fetch_with_debug(symbol):
+    try:
+        debug_log(f"Requesting {symbol}...")
+        data = nse_eq(symbol)
         
-        if res: st.dataframe(pd.DataFrame(res), use_container_width=True)
-        else: st.warning("NSE Server returned empty. They have blocked this Cloud IP. Run locally.")
+        if not data:
+            debug_log(f"{symbol}: Server returned EMPTY object.", "error")
+            return None
+        
+        if 'priceInfo' not in data:
+            debug_log(f"{symbol}: 'priceInfo' missing. (Market closed/Blocked?)", "error")
+            return None
+            
+        debug_log(f"{symbol}: Data received successfully.", "success")
+        return data
+    except Exception as e:
+        debug_log(f"{symbol}: Crash -> {str(e)}", "error")
+        return None
+
+# --- 3. THE DELIVERY SCANNER (WITH FULL TRACING) ---
+st.title("⚡ Alpha Hunter (Debug Mode)")
+tab_del, tab_risk = st.tabs(["💎 Smart Money Scan", "🧮 Risk"])
+
+with tab_del:
+    st.markdown("Monitor the **Sidebar Logs** to see why stocks are being skipped.")
+    
+    if st.button("▶ Run Full Trace Scan"):
+        results = []
+        progress = st.progress(0)
+        
+        # Step 1: Fetch List
+        try:
+            watch = fnolist()
+            debug_log(f"F&O List Loaded: {len(watch)} symbols.")
+        except:
+            st.error("Could not load F&O list. Check Internet.")
+            st.stop()
+            
+        # Step 2: Loop with Debugging
+        target_list = watch[10:40] # Scan a batch of 30
+        
+        for i, sym in enumerate(target_list):
+            progress.progress((i + 1) / len(target_list))
+            
+            # Skip Indices
+            if any(idx in sym for idx in ['NIFTY', 'BANKNIFTY']):
+                debug_log(f"Skipping Index: {sym}")
+                continue
+                
+            d = fetch_with_debug(sym)
+            if d:
+                # TRACING THE DELIVERY KEY
+                trade_info = d.get('marketDeptOrderBook', {}).get('tradeInfo', {})
+                
+                # Check Key A
+                pct = trade_info.get('deliveryPercentage')
+                if pct is not None:
+                    debug_log(f"{sym}: Found 'deliveryPercentage' = {pct}")
+                else:
+                    # Check Key B
+                    pct = trade_info.get('deliveryToTradedQuantity')
+                    if pct is not None:
+                        debug_log(f"{sym}: Found 'deliveryToTradedQuantity' = {pct}")
+                    else:
+                        debug_log(f"{sym}: NO DELIVERY KEY FOUND.", "error")
+                
+                # Filter Logic
+                if pct and str(pct) != '-':
+                    clean_val = float(str(pct).replace('%', '').strip())
+                    if clean_val > 60:
+                        debug_log(f"🎯 MATCH FOUND: {sym} ({clean_val}%)", "success")
+                        results.append({"Symbol": sym, "Delivery": f"{clean_val}%", "Price": d['priceInfo']['lastPrice']})
+            
+            time.sleep(1.0) # Be very gentle to avoid IP block
+            
+        if results:
+            st.dataframe(pd.DataFrame(results), use_container_width=True)
+        else:
+            st.warning("Scan finished. Check logs to see if you were blocked or if no matches exist.")
